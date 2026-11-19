@@ -1,0 +1,337 @@
+@startuml POS_System
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+' =========================================================
+' MODEL LAYER
+' =========================================================
+package "com.pos.model" {
+
+  enum Role {
+    CASHIER
+    MANAGER
+    ADMIN
+  }
+
+  enum SaleStatus {
+    OPEN
+    COMPLETED
+    CANCELLED
+    REFUNDED
+  }
+
+  enum PaymentStatus {
+    PENDING
+    APPROVED
+    DECLINED
+    REFUNDED
+  }
+
+  class User {
+    - id: Long
+    - username: String
+    - passwordHash: String
+    - fullName: String
+    - role: Role
+    + hasPermission(action: String): boolean
+  }
+
+  class Customer {
+    - id: Long
+    - name: String
+    - phone: String
+    - email: String
+    - loyaltyPoints: int
+    + addPoints(points: int): void
+    + redeemPoints(points: int): boolean
+  }
+
+  class Category {
+    - id: Long
+    - name: String
+    - description: String
+  }
+
+  class Product {
+    - id: Long
+    - barcode: String
+    - name: String
+    - price: BigDecimal
+    - taxRate: BigDecimal
+    - stockQuantity: int
+    - reorderLevel: int
+    + isInStock(qty: int): boolean
+    + decreaseStock(qty: int): void
+    + increaseStock(qty: int): void
+  }
+
+  class Sale {
+    - id: Long
+    - dateTime: LocalDateTime
+    - status: SaleStatus
+    + addItem(product: Product, qty: int): void
+    + removeItem(product: Product): void
+    + applyDiscount(d: Discount): void
+    + calculateSubtotal(): BigDecimal
+    + calculateTax(): BigDecimal
+    + calculateTotal(): BigDecimal
+    + getAmountPaid(): BigDecimal
+    + complete(): void
+    + cancel(): void
+  }
+
+  class SaleLineItem {
+    - quantity: int
+    - unitPrice: BigDecimal
+    + getLineTotal(): BigDecimal
+  }
+
+  interface Discount {
+    + apply(amount: BigDecimal): BigDecimal
+  }
+
+  class PercentageDiscount {
+    - percent: BigDecimal
+    + apply(amount: BigDecimal): BigDecimal
+  }
+
+  class FixedAmountDiscount {
+    - amount: BigDecimal
+    + apply(amount: BigDecimal): BigDecimal
+  }
+
+  abstract class Payment {
+    # id: Long
+    # amount: BigDecimal
+    # timestamp: LocalDateTime
+    # status: PaymentStatus
+    + {abstract} process(): boolean
+    + refund(): boolean
+  }
+
+  class CashPayment {
+    - amountTendered: BigDecimal
+    + calculateChange(): BigDecimal
+    + process(): boolean
+  }
+
+  class CardPayment {
+    - cardLast4: String
+    - authCode: String
+    + process(): boolean
+  }
+
+  class MobilePayment {
+    - walletProvider: String
+    - transactionRef: String
+    + process(): boolean
+  }
+
+  class Receipt {
+    - receiptNumber: String
+    - issuedAt: LocalDateTime
+    + generateText(): String
+  }
+}
+
+' =========================================================
+' REPOSITORY LAYER
+' =========================================================
+package "com.pos.repository" {
+
+  interface Repository<T, ID> {
+    + findById(id: ID): Optional<T>
+    + findAll(): List<T>
+    + save(entity: T): T
+    + delete(id: ID): void
+  }
+
+  interface ProductRepository {
+    + findByBarcode(barcode: String): Optional<Product>
+    + searchByName(name: String): List<Product>
+    + findLowStock(): List<Product>
+  }
+
+  interface SaleRepository {
+    + findByDateRange(from: LocalDate, to: LocalDate): List<Sale>
+    + findByCashier(userId: Long): List<Sale>
+  }
+
+  interface UserRepository {
+    + findByUsername(username: String): Optional<User>
+  }
+
+  interface CustomerRepository {
+    + findByPhone(phone: String): Optional<Customer>
+  }
+
+  class JdbcProductRepository
+  class JdbcSaleRepository
+  class JdbcUserRepository
+  class JdbcCustomerRepository
+}
+
+' =========================================================
+' SERVICE LAYER
+' =========================================================
+package "com.pos.service" {
+
+  class AuthService {
+    + login(username: String, password: String): User
+    + logout(): void
+    + getCurrentUser(): User
+  }
+
+  class ProductService {
+    + addProduct(p: Product): Product
+    + updateProduct(p: Product): Product
+    + findByBarcode(code: String): Product
+    + checkLowStock(): List<Product>
+  }
+
+  class SaleService {
+    + startSale(cashier: User): Sale
+    + scanItem(sale: Sale, barcode: String, qty: int): void
+    + checkout(sale: Sale, payment: Payment): Receipt
+    + voidSale(sale: Sale): void
+    + refundSale(saleId: Long): void
+  }
+
+  class PaymentService {
+    + createPayment(type: String, amount: BigDecimal): Payment
+    + processPayment(p: Payment): boolean
+  }
+
+  class InventoryService {
+    + deductStock(sale: Sale): void
+    + restock(productId: Long, qty: int): void
+  }
+
+  class ReportService {
+    + dailySalesReport(date: LocalDate): String
+    + topSellingProducts(limit: int): List<Product>
+    + salesByCashier(from: LocalDate, to: LocalDate): String
+  }
+}
+
+' =========================================================
+' HARDWARE ABSTRACTION
+' =========================================================
+package "com.pos.hardware" {
+
+  interface ReceiptPrinter {
+    + print(receipt: Receipt): void
+    + openCashDrawer(): void
+  }
+
+  interface BarcodeScanner {
+    + onScan(listener: Consumer<String>): void
+  }
+
+  class ThermalPrinter
+  class UsbBarcodeScanner
+}
+
+' =========================================================
+' UI / CONTROLLER LAYER (JavaFX)
+' =========================================================
+package "com.pos.ui" {
+
+  class POSApplication {
+    + {static} main(args: String[]): void
+    + start(stage: Stage): void
+  }
+
+  class LoginController {
+    + onLoginClicked(): void
+  }
+
+  class CheckoutController {
+    + onBarcodeScanned(code: String): void
+    + onPayClicked(): void
+    + onVoidClicked(): void
+    + refreshCart(): void
+  }
+
+  class InventoryController {
+    + onAddProduct(): void
+    + onUpdateStock(): void
+  }
+
+  class ReportController {
+    + onGenerateReport(): void
+  }
+}
+
+' =========================================================
+' RELATIONSHIPS - MODEL
+' =========================================================
+User "1" --> "1" Role
+Sale "1" --> "1" SaleStatus
+Payment "1" --> "1" PaymentStatus
+
+Category "1" o-- "0..*" Product
+Sale "1" *-- "1..*" SaleLineItem
+SaleLineItem "*" --> "1" Product
+Sale "*" --> "1" User : cashier
+Sale "*" --> "0..1" Customer
+Sale "1" *-- "0..*" Payment
+Sale "1" o-- "0..*" Discount
+Receipt "1" --> "1" Sale
+
+Payment <|-- CashPayment
+Payment <|-- CardPayment
+Payment <|-- MobilePayment
+
+Discount <|.. PercentageDiscount
+Discount <|.. FixedAmountDiscount
+
+' =========================================================
+' RELATIONSHIPS - REPOSITORY
+' =========================================================
+Repository <|-- ProductRepository
+Repository <|-- SaleRepository
+Repository <|-- UserRepository
+Repository <|-- CustomerRepository
+
+ProductRepository <|.. JdbcProductRepository
+SaleRepository <|.. JdbcSaleRepository
+UserRepository <|.. JdbcUserRepository
+CustomerRepository <|.. JdbcCustomerRepository
+
+' =========================================================
+' RELATIONSHIPS - SERVICES
+' =========================================================
+AuthService ..> UserRepository
+ProductService ..> ProductRepository
+SaleService ..> SaleRepository
+SaleService ..> ProductService
+SaleService ..> PaymentService
+SaleService ..> InventoryService
+SaleService ..> ReceiptPrinter
+InventoryService ..> ProductRepository
+ReportService ..> SaleRepository
+
+' =========================================================
+' RELATIONSHIPS - HARDWARE
+' =========================================================
+ReceiptPrinter <|.. ThermalPrinter
+BarcodeScanner <|.. UsbBarcodeScanner
+
+' =========================================================
+' RELATIONSHIPS - UI
+' =========================================================
+POSApplication ..> LoginController
+POSApplication ..> CheckoutController
+POSApplication ..> InventoryController
+POSApplication ..> ReportController
+
+LoginController --> AuthService
+CheckoutController --> SaleService
+CheckoutController --> BarcodeScanner
+InventoryController --> ProductService
+InventoryController --> InventoryService
+ReportController --> ReportService
+
+@enduml
